@@ -6,25 +6,161 @@ output: rmarkdown::github_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(dplyr)
+library(tidyverse)
+library(tidytext)
+library(stringr)
+library(ggplot2)
+setwd('~/star_wars_text_mining/')
 ```
 
-## R Markdown
+# Text Mining the Star Wars Original Trilogy movie scripts
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+******
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+### Importing the data
 
 ```{r cars}
-summary(cars)
+e4 = read.table("star-wars-movie-scripts/SW_EPISODEIV.txt", stringsAsFactors = F, header = TRUE, quote = "\"");
+colnames(e4) = c('index','character','dialogue')
+e4$movie = "a new hope"
+e5 = read.table("star-wars-movie-scripts/SW_EPISODEV.txt", stringsAsFactors = F, header = TRUE, quote = "\"")
+colnames(e5) = c('index','character','dialogue')
+e5$movie = "empire strikes back"
+e6 = read.table("star-wars-movie-scripts/SW_EPISODEVI.txt", stringsAsFactors = F, header = TRUE, quote = "\"")
+colnames(e6) = c('index','character','dialogue')
+e6$movie = "return of the jedi"
 ```
 
-## Including Plots
+******
 
-You can also embed plots, for example:
+### String Cleaning
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+remove_punctuation = function(df){
+  df %>% 
+    mutate(dialogue = str_replace_all(dialogue, "[[:punct:]]", "")) %>% 
+    mutate(dialogue = tolower(str_replace_all(dialogue, " {2,}", " "))) %>%
+    return()
+}
+
+create_tidy_text = function(df){
+  df %>% 
+    unnest_tokens("word", "dialogue") %>% 
+    return()
+}
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+star_wars = list(e4, e5, e6)
+star_wars = lapply(star_wars, remove_punctuation)
+star_wars = lapply(star_wars, create_tidy_text)
+star_wars = do.call(rbind, star_wars)
+
+stop_words_no_punct = stop_words %>% 
+  mutate(word = str_replace_all(word, "[[:punct:]]", ""))
+
+star_wars = star_wars %>% anti_join(stop_words_no_punct)
+head(star_wars)
+```
+
+## Term Frequency By Movie
+
+```{r}
+star_wars_words = star_wars %>%
+  count(movie, word, sort = TRUE) %>%
+  ungroup()
+
+star_wars_words %>% head(20)
+```
+
+## TF IDF by movie
+
+Identifies words most unique to each movie
+
+```{r}
+star_wars_tfidf = star_wars_words %>% 
+  bind_tf_idf(word, movie, n) %>%
+  arrange(desc(tf_idf))
+star_wars_tfidf %>% head(20)
+```
+
+```{r}
+ star_wars_tfidf %>% 
+  mutate(word  = factor(word, levels = rev(unique(word)))) %>% 
+  group_by(movie) %>%
+  top_n(12) %>% 
+  ggplot(aes(word, tf_idf, fill = movie)) + 
+  scale_fill_manual(values = c('#2d54b0', '#ad3a32', '#32ab1d')) +
+  geom_col(show.legend =  F) + 
+  labs(x = NULL, y = "tf-idf") + 
+  facet_wrap(~movie, nrow = 3, scales = "free") + 
+  coord_flip()
+```
+
+## TF IDF between the 6 main characters in The Empire Strikes Back
+
+Which words are most unique to each character in Episode 5?
+
+```{r}
+star_wars %>% 
+  filter(movie == "empire strikes back") %>% 
+  filter(character %in% c("HAN", "LUKE", "LEIA", "THREEPIO", "VADER", "LANDO")) %>% 
+  count(character, word, sort = TRUE) %>% 
+  bind_tf_idf(word, character, n) %>%
+  arrange(desc(tf_idf)) %>% 
+  mutate(word  = factor(word, levels = rev(unique(word)))) %>% 
+  group_by(character) %>%
+  top_n(8) %>% 
+  ggplot(aes(word, tf_idf, fill = character)) + 
+  geom_col(show.legend =  F) + 
+  labs(x = NULL, y = "tf-idf") + 
+  facet_wrap(~character, ncol = 2, scales = "free") + 
+  coord_flip() + 
+  ggtitle("TF-IDF by character in Empire Strikes Back")
+```
+
+## Sentiment Analysis of Darth Vader's Lines in Return of the Jedi
+
+How do Vader's emotions change throughout his lines in return of the Jedi?
+
+```{r}
+vader_e5 = e5 %>% 
+  remove_punctuation() %>% 
+  filter(character == "VADER") %>% 
+  mutate(index = row_number()) %>% 
+  unnest_tokens("word", "dialogue") %>% 
+  anti_join(stop_words_no_punct) %>% 
+  inner_join(get_sentiments('nrc')) %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  count(index, word, sentiment, score) %>% 
+  filter(!(sentiment %in% c('positive', 'negative'))) %>%
+  ggplot(aes(index, n*score)) + 
+  facet_wrap(~sentiment, scales = "free", ncol = 2) + 
+  geom_line(aes(color = as.factor(sentiment))) +
+  theme_minimal() + 
+  theme(legend.position = "none") + 
+  ggtitle("Vader's Feelings by Line in the Empire Strikes Back") + 
+  labs(x = "line number", y = "sentiment score")
+
+vader_e6 = e6 %>% 
+  remove_punctuation() %>% 
+  filter(character == "VADER") %>% 
+  mutate(index = row_number()) %>% 
+  unnest_tokens("word", "dialogue") %>% 
+  anti_join(stop_words_no_punct) %>% 
+  inner_join(get_sentiments('nrc')) %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  count(index, word, sentiment, score) %>% 
+  filter(!(sentiment %in% c('positive', 'negative'))) %>%
+  ggplot(aes(index, n*score)) + 
+  facet_wrap(~sentiment, scales = "free", ncol = 2) + 
+  geom_line(aes(color = as.factor(sentiment))) +
+  theme_minimal() + 
+  theme(legend.position = "none") + 
+  ggtitle("Vader's Feelings by Line in Return of the Jedi") + 
+  labs(x = "line number", y = "sentiment score")
+
+vader_e5; vader_e6
+```
