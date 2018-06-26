@@ -174,7 +174,7 @@ library(tm)
 star_wars %>% 
   count(movie, word) %>%
   cast_dtm(movie, word, n) %>% 
-  LDA(k = 3, control = list(seed = 100)) %>% 
+  LDA(k = 6, control = list(seed = 100)) %>% 
   tidy(matrix = 'beta') %>% 
   group_by(topic) %>% 
   top_n(10, beta) %>% 
