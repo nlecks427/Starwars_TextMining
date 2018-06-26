@@ -12,7 +12,6 @@ library(tidyverse)
 library(tidytext)
 library(stringr)
 library(ggplot2)
-setwd('~/star_wars_text_mining/')
 ```
 
 # Text Mining the Star Wars Original Trilogy movie scripts
@@ -163,4 +162,49 @@ vader_e6 = e6 %>%
   labs(x = "line number", y = "sentiment score")
 
 vader_e5; vader_e6
+```
+
+## LDA Topic Modeling
+
+#### Topics between movies
+```{r}
+library(topicmodels)
+library(tm)
+
+star_wars %>% 
+  count(movie, word) %>%
+  cast_dtm(movie, word, n) %>% 
+  LDA(k = 3, control = list(seed = 100)) %>% 
+  tidy(matrix = 'beta') %>% 
+  group_by(topic) %>% 
+  top_n(10, beta) %>% 
+  arrange(topic, -beta) %>% 
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) + 
+  facet_wrap(~ topic, scale = 'free') + 
+  coord_flip()
+````
+
+```{r}
+e5_dtm = e5 %>%
+  remove_punctuation() %>% 
+  unnest_tokens("word", "dialogue") %>% 
+  count(index, word) %>% 
+  anti_join(stop_words_no_punct) %>% 
+  cast_dtm(`index`, word, n)
+
+e5_topics = LDA(e5_dtm, k = 3, control = list(seed = 100)) %>% 
+  tidy(matrix = 'beta')
+
+e5_topics %>% 
+  group_by(topic) %>% 
+  top_n(10, beta) %>% 
+  arrange(topic, -beta) %>% 
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) + 
+  facet_wrap(~ topic, scale = 'free') + 
+  ggtitle("LDA Topic Modeling - Empire Strikes Back") + 
+  coord_flip()
 ```
